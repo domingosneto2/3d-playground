@@ -34,11 +34,18 @@ class MatrixTest {
         Matrix projectionMatrix = Transform.projection(1, 1, 90, 2, 1);
         Vertex v = new Vertex(0.5, 0.5, 1);
         Vertex t = projectionMatrix.mul(v);
-        assertEquals(v, t);
+        Vertex expected = new Vertex(0.5, 0.5, 0);
+        compareVertices(expected, t, 0.00001);
 
         Vertex v2 = new Vertex(0.5, 0.5, 2);
         Vertex t2 = projectionMatrix.mul(v2);
-        assertEquals(new Vertex(0.25, 0.25, 1), t2);
+        compareVertices(new Vertex(0.25, 0.25, 1), t2, 0.0001);
+    }
+
+    private void compareVertices(Vertex v1, Vertex v2, double delta) {
+        assertEquals(v1.x, v2.x, delta);
+        assertEquals(v1.y, v2.y, delta);
+        assertEquals(v1.z, v2.z, delta);
     }
 
     @Test

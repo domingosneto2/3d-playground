@@ -14,7 +14,7 @@ public class Transform {
 		double q = zFar / (zFar - zNear);
 		return new Matrix(a * f, 0, 0, 0,
 				0, f, 0, 0,
-				0, 0, q, zNear * q,
+				0, 0, q, -zNear * q,
 				0, 0, 1, 0);
     }
 

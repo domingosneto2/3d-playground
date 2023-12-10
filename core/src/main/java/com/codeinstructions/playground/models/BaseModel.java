@@ -13,6 +13,8 @@ public abstract class BaseModel implements Model {
 
     private PolygonMesh polygonMesh;
 
+    private Mesh mesh;
+
     private boolean modified = true;
 
     @Override
@@ -22,6 +24,10 @@ public abstract class BaseModel implements Model {
 
     void clearModified() {
         this.modified = false;
+    }
+
+    void setModified() {
+        modified = true;
     }
 
     void attributeSet(Object oldValue, Object newValue) {
@@ -42,21 +48,19 @@ public abstract class BaseModel implements Model {
     public Mesh mesh() {
         if (modified) {
             polygonMesh = computeMesh();
+            mesh = new Mesh(polygonMesh.concave);
+            for (Polygon polygon : polygonMesh.getPolygons()) {
+                mesh.add(polygon);
+            }
         }
-        Mesh mesh = new Mesh(polygonMesh.concave);
-        for (Polygon polygon : polygonMesh.getPolygons()) {
-            mesh.add(polygon);
-        }
+
         modified = false;
         return mesh;
     }
 
     @Override
     public PolygonMesh polygonMesh() {
-        if (modified) {
-            polygonMesh = computeMesh();
-        }
-        modified = false;
+        mesh();
         return polygonMesh;
     }
 

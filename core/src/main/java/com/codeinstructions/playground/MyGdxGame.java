@@ -6,7 +6,8 @@ import com.badlogic.gdx.Input;
 import com.badlogic.gdx.InputAdapter;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
-import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import com.badlogic.gdx.graphics.glutils.ImmediateModeRenderer20;
+import com.badlogic.gdx.math.Matrix4;
 import com.codeinstructions.playground.models.*;
 
 import java.util.ArrayList;
@@ -14,8 +15,13 @@ import java.util.List;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveAction;
 
+import static com.badlogic.gdx.math.MathUtils.clamp;
+
 public class MyGdxGame extends ApplicationAdapter {
-	ShapeRenderer shape;
+
+	ImmediateModeRenderer20 renderer;
+
+	Matrix4 identity;
 
 	Matrix projectionMatrix;
 
@@ -82,6 +88,10 @@ public class MyGdxGame extends ApplicationAdapter {
 
 	@Override
 	public void create () {
+		renderer = new ImmediateModeRenderer20(false, true, 0);
+		identity = new Matrix4();
+		identity.idt();
+
 		Gdx.input.setInputProcessor(new InputAdapter() {
 			@Override
 			public boolean keyDown(int keycode) {
@@ -262,18 +272,15 @@ public class MyGdxGame extends ApplicationAdapter {
 		objectTransform = rotation.translation(dx, dy, dz);
 
 		Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+		Gdx.gl.glClear(GL20.GL_DEPTH_BUFFER_BIT);
+		Gdx.gl.glEnable(GL20.GL_DEPTH_TEST);
+		Gdx.gl.glDepthFunc(GL20.GL_LEQUAL);
 
 		height = Gdx.graphics.getHeight();
 		width = Gdx.graphics.getWidth();
 
-		projectionMatrix = Transform.projection(width, height, fov, 20, 1);
+		projectionMatrix = Transform.projection(width, height, fov, 100, 0.2);
 
-		shape = new ShapeRenderer();
-		if (wireframe) {
-			shape.begin(ShapeRenderer.ShapeType.Line);
-		} else {
-			shape.begin(ShapeRenderer.ShapeType.Filled);
-		}
 
 		long currentTimestamp = System.currentTimeMillis();
 		boolean printLog = false;
@@ -298,12 +305,15 @@ public class MyGdxGame extends ApplicationAdapter {
 
 		Mesh floor = new Mesh();
 
-		for (int i = 0; i < 20; i++) {
-			for (int j = 0; j < 20; j++) {
-				Vertex v1 = new Vertex(-10 + i, -2, 1 + j);
-				Vertex v2 = v1.add(Vertex.I);
-				Vertex v3 = v1.add(Vertex.K);
-				Vertex v4 = v2.add(Vertex.K);
+		int numTiles = 20;
+		float tileSize = 1;
+
+		for (int i = 0; i < numTiles; i++) {
+			for (int j = 0; j < numTiles; j++) {
+				Vertex v1 = new Vertex(-tileSize * numTiles / 2 + i * tileSize, -2, 1 + j * tileSize);
+				Vertex v2 = v1.add(Vertex.I.mul(tileSize));
+				Vertex v3 = v1.add(Vertex.K.mul(tileSize));
+				Vertex v4 = v2.add(Vertex.K.mul(tileSize));
 
 				Polygon tile = new Polygon(v1, v3, v4, v2);
 				tile.setMaterial((i + j) % 2 == 0 ? Color.WHITE : Color.GRAY);
@@ -353,8 +363,6 @@ public class MyGdxGame extends ApplicationAdapter {
 				drawLightRays(transformedMesh2, polygon);
 			}
 		}
-
-		shape.end();
 	}
 
 	private void resetBackFaceCulling(Mesh transformedMesh) {
@@ -424,11 +432,15 @@ public class MyGdxGame extends ApplicationAdapter {
 			}
 		}
 		transformedMesh.replacePolygons(newList);
-		//transformedMesh.packNoDedupe();
 	}
 
 	private void drawPolygons(Mesh projectedMesh, boolean countPolygons) {
 		int count = 0;
+		if (!wireframe) {
+			renderer.begin(identity, GL20.GL_TRIANGLES);
+		} else {
+			renderer.begin(identity, GL20.GL_LINES);
+		}
 		for (MeshPolygon polygon : projectedMesh.getPolygons()) {
 			if (count >= polygonCount && countPolygons) {
 				break;
@@ -445,6 +457,8 @@ public class MyGdxGame extends ApplicationAdapter {
 				drawPolygon2(polygon, projectedMesh);
 			}
 		}
+
+		renderer.end();
 	}
 
 	private void sortPolygons(Mesh projectedMesh, boolean logSortingDuration) {
@@ -483,6 +497,7 @@ public class MyGdxGame extends ApplicationAdapter {
 			if (polygon.getNumNormals() == 0 || !smoothLighting) {
 				computeColor(center, normal, material, c);
 				polygon.setColor(c.r, c.g, c.b);
+				polygon.setHasVertexColors(false);
 			} else {
 				computeColor(polygon.getP0(), polygon.getN0(), material, c0, transformedMesh);
 				computeColor(polygon.getP1(), polygon.getN1(), material, c1, transformedMesh);
@@ -510,13 +525,12 @@ public class MyGdxGame extends ApplicationAdapter {
 
 		Vertex lightRay = center.subtract(light).normalize();
 
-		Color color = shape.getColor();
+		renderer.begin(identity, GL20.GL_LINES);
+
 		if (normal.dot(center) <= 0) {
 			if (drawLightRays) {
 				float dot = (float) normal.normalize().dot(lightRay);
 				if (dot < 0) {
-					shape.setColor(1, 1, 0, 0.3f);
-
 					Vertex clippedLight = light;
 					if (light.z < zNear) {
 						double dz = center.z - light.z;
@@ -524,7 +538,7 @@ public class MyGdxGame extends ApplicationAdapter {
 
 						clippedLight = light.subtract(center).mul(clippingRatio / dz).add(center);
 					}
-					drawLine(projectionMatrix.mul(clippedLight), projectionMatrix.mul(center));
+					drawLine(projectionMatrix.mul(clippedLight), projectionMatrix.mul(center), Color.YELLOW.toFloatBits());
 				}
 			}
 		}
@@ -534,33 +548,30 @@ public class MyGdxGame extends ApplicationAdapter {
 		}
 
 		if (drawNormals) {
-			shape.setColor(1, 0, 0, 1);
-			drawLine(projectionMatrix.mul(center), projectionMatrix.mul(center.add(normal.normalize().mul(1 / 5.))));
+			drawLine(projectionMatrix.mul(center), projectionMatrix.mul(center.add(normal.normalize().mul(1 / 5.))), Color.RED.toFloatBits());
 
 
 			if (polygon.getNumNormals() > 0) {
-				shape.setColor(0, 0, 1, 1);
 				Vertex v0 = polygon.getV0(transformedMesh);
 				Vertex n0 = transformedMesh.getNormalById(polygon.getN0());
-				drawLine(projectionMatrix.mul(v0), projectionMatrix.mul(v0.add(n0.normalize().mul(1 / 5.))));
+				drawLine(projectionMatrix.mul(v0), projectionMatrix.mul(v0.add(n0.normalize().mul(1 / 5.))), Color.BLUE.toFloatBits());
 				Vertex v1 = polygon.getV1(transformedMesh);
 				Vertex n1 = transformedMesh.getNormalById(polygon.getN1());
-				drawLine(projectionMatrix.mul(v1), projectionMatrix.mul(v1.add(n1.normalize().mul(1 / 5.))));
+				drawLine(projectionMatrix.mul(v1), projectionMatrix.mul(v1.add(n1.normalize().mul(1 / 5.))), Color.BLUE.toFloatBits());
 				Vertex v2 = polygon.getV2(transformedMesh);
 				Vertex n2 = transformedMesh.getNormalById(polygon.getN2());
-				drawLine(projectionMatrix.mul(v2), projectionMatrix.mul(v2.add(n2.normalize().mul(1 / 5.))));
+				drawLine(projectionMatrix.mul(v2), projectionMatrix.mul(v2.add(n2.normalize().mul(1 / 5.))), Color.BLUE.toFloatBits());
 				if (polygon.getNumNormals() > 3) {
 					Vertex v3 = polygon.getV3(transformedMesh);
 					Vertex n3 = transformedMesh.getNormalById(polygon.getN3());
-					drawLine(projectionMatrix.mul(v3), projectionMatrix.mul(v3.add(n3.normalize().mul(1 / 5.))));
+					drawLine(projectionMatrix.mul(v3), projectionMatrix.mul(v3.add(n3.normalize().mul(1 / 5.))), Color.BLUE.toFloatBits());
 				}
 			}
 		}
-		shape.setColor(color);
+		renderer.end();
 	}
 
 	private void drawPolygon2(MeshPolygon polygon, Mesh mesh) {
-
 		if (wireframe) {
 			Vertex v0 = polygon.getV0(mesh);
 			Vertex v1 = polygon.getV1(mesh);
@@ -576,60 +587,56 @@ public class MyGdxGame extends ApplicationAdapter {
 			}
 		} else {
 			if (!polygon.isHasVertexColors()) {
-				shape.setColor(polygon.r, polygon.g, polygon.b, 1);
+				float color = Color.toFloatBits(polygon.r, polygon.g, polygon.b, 1);
+				Vertex v0 = polygon.getV0(mesh);
+				Vertex v1 = polygon.getV1(mesh);
+				Vertex v2 = polygon.getV2(mesh);
+				triangle(v0, v1, v2, color);
 
-				Vertex v0 = toScreenSpace(polygon.getV0(mesh));
-				Vertex v1 = toScreenSpace(polygon.getV1(mesh));
-				Vertex v2 = toScreenSpace(polygon.getV2(mesh));
-				shape.triangle((float)v0.x, (float)v0.y, (float)v1.x, (float)v1.y, (float)v2.x, (float)v2.y);
 				if (polygon.getNumVertices() > 3) {
 					v1 = v2;
-					v2 = toScreenSpace(polygon.getV3(mesh));
-					shape.triangle((float)v0.x, (float)v0.y, (float)v1.x, (float)v1.y, (float)v2.x, (float)v2.y);
+					v2 = polygon.getV3(mesh);
+					triangle(v0, v1, v2, color);
 				}
 			} else {
 				Vertex v0 = polygon.getV0(mesh);
 				Vertex v1 = polygon.getV1(mesh);
 				Vertex v2 = polygon.getV2(mesh);
-				v0 = toScreenSpace(v0);
-				v1 = toScreenSpace(v1);
-				v2 = toScreenSpace(v2);
-				Color c0 = new Color(polygon.r0, polygon.g0, polygon.b0, 1);
-				Color c1 = new Color(polygon.r1, polygon.g1, polygon.b1, 1);
-				Color c2 = new Color(polygon.r2, polygon.g2, polygon.b2, 1);
+				float c0 = Color.toFloatBits(polygon.r0, polygon.g0, polygon.b0, 1);
+				float c1 = Color.toFloatBits(polygon.r1, polygon.g1, polygon.b1, 1);
+				float c2 = Color.toFloatBits(polygon.r2, polygon.g2, polygon.b2, 1);
+
 				if (polygon.getNumVertices() == 3) {
-					shape.triangle((float)v0.x, (float)v0.y, (float)v1.x, (float)v1.y, (float)v2.x, (float)v2.y, c0, c1, c2);
+					triangle(v0, v1, v2, c0, c1, c2);
 				}
 				if (polygon.getNumVertices() > 3) {
 					Vertex v3 = polygon.getV3(mesh);
-					v3 = toScreenSpace(v3);
-					Color c3 = new Color(polygon.r3, polygon.g3, polygon.b3, 1);
+					float c3 = Color.toFloatBits(polygon.r3, polygon.g3, polygon.b3, 1);
 					Vertex center = polygon.center(mesh);
-					center = toScreenSpace(center);
-					Color cc = new Color(polygon.r, polygon.g, polygon.b, 1);
-					shape.triangle(
-							(float)v0.x, (float)v0.y,
-							(float)v1.x, (float)v1.y,
-							(float)center.x, (float)center.y,
-							c0, c1, cc);
-					shape.triangle(
-							(float)v1.x, (float)v1.y,
-							(float)v2.x, (float)v2.y,
-							(float)center.x, (float)center.y,
-							c1, c2, cc);
-					shape.triangle(
-							(float)v2.x, (float)v2.y,
-							(float)v3.x, (float)v3.y,
-							(float)center.x, (float)center.y,
-							c2, c3, cc);
-					shape.triangle(
-							(float)v3.x, (float)v3.y,
-							(float)v0.x, (float)v0.y,
-							(float)center.x, (float)center.y,
-							c3, c0, cc);
+					float cc = Color.toFloatBits(polygon.r, polygon.g, polygon.b, 1);
+					triangle(v0, v1, center, c0, c1, cc);
+					triangle(v1, v2, center, c1, c2, cc);
+					triangle(v2, v3, center, c2, c3, cc);
+					triangle(v3, v0, center, c3, c0, cc);
 				}
 			}
 		}
+	}
+
+	private void triangle(Vertex v0, Vertex v1, Vertex v2, float color) {
+		triangle(v0, v1, v2, color, color, color);
+	}
+	private void triangle(Vertex v0, Vertex v1, Vertex v2, float c0, float c1, float c2) {
+		if (renderer.getNumVertices() > renderer.getMaxVertices() - 100) {
+			renderer.flush();
+		}
+
+		renderer.color(c0);
+		renderer.vertex((float) v0.x, (float) v0.y, (float) v0.z);
+		renderer.color(c1);
+		renderer.vertex((float) v1.x, (float) v1.y, (float) v1.z);
+		renderer.color(c2);
+		renderer.vertex((float) v2.x, (float) v2.y, (float) v2.z);
 	}
 
 	private void computeColor(int vertexId, int normalId, Color material, Color result, Mesh mesh) {
@@ -651,25 +658,23 @@ public class MyGdxGame extends ApplicationAdapter {
 		light = light < 0 ? 0 : light;
 		double ambient = 0.2f;
 		float lightValue = (float)(light / 2 + ambient);
-		result.r = material.r * lightValue;
-		result.g = material.g * lightValue;
-		result.b = material.b * lightValue;
+		result.r = clamp(material.r * lightValue, 0, 1);
+		result.g = clamp(material.g * lightValue, 0, 1);
+		result.b = clamp(material.b * lightValue, 0, 1);
+
+	}
+
+	private void drawLine(Vertex v1, Vertex v2, float color) {
+		if (renderer.getNumVertices() > renderer.getMaxVertices() - 100) {
+			renderer.flush();
+		}
+		renderer.color(color);
+		renderer.vertex((float)v1.x, (float)v1.y, (float)v1.z);
+		renderer.color(color);
+		renderer.vertex((float)v2.x, (float)v2.y, (float)v2.z);
 	}
 
 	private void drawLine(Vertex v1, Vertex v2) {
-
-		v1 = toScreenSpace(v1);
-		v2 = toScreenSpace(v2);
-
-		drawLine(v1.x, v1.y, v2.x, v2.y);
-	}
-
-
-	private Vertex toScreenSpace(Vertex v) {
-		return new Vertex((v.x + 1) * width / 2, (v.y + 1) * height / 2, v.z);
-	}
-
-	private void drawLine(double x, double y, double x2, double y2) {
-		shape.line((float)x, (float)y, (float)x2, (float)y2);
+		drawLine(v1, v2, Color.WHITE_FLOAT_BITS);
 	}
 }

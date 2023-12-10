@@ -65,7 +65,7 @@ public class Spiker<T extends Model> extends BaseModel {
     }
 
     public void setSpikeDelta(double spikeDelta) {
-        attributeSet(0, spikeDelta);
+        attributeSet(0.0d, spikeDelta);
         spikeLength += spikeDelta;
     }
 
@@ -77,10 +77,12 @@ public class Spiker<T extends Model> extends BaseModel {
     @Override
     public void increaseDetail() {
         delegate.increaseDetail();
+        setModified();
     }
 
     @Override
     public void decreaseDetail() {
         delegate.decreaseDetail();
+        setModified();
     }
 }
